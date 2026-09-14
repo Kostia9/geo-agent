@@ -1,0 +1,20 @@
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows
+
+  geo-api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8020:8000"
+    volumes:
+      - ./data:/data
+
+volumes:
+  n8n_data:
