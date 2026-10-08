@@ -1,0 +1,260 @@
+{
+  "name": "Lab 1 - GIS AI Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "initialMessages": "Вітаю! Я GIS-асистент.\nМожу:\n- знаходити координати міст;\n- визначати сонячний та вітровий потенціал;\n- рахувати площу полігонів;\n- аналізувати середні значення растру по території.\nНапишіть назву міста, координати або надішліть GeoJSON.",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        0
+      ],
+      "id": "fc14e673-b1a6-41cc-9ac8-b84baffa0fdc",
+      "name": "When chat message received",
+      "webhookId": "e7a9af16-027e-4b3e-a355-968d2c1d588b"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are a GIS assistant for geospatial analysis.\n\nYour job is to answer user questions about vector and raster geospatial data by using the available GIS tools.\n\nRules:\n- Always use GIS tools for calculations and raster queries. Do not estimate spatial values yourself.\n- Use Calculate Polygon Area when the user asks for polygon area.\n- Use Get Solar Raster Value when the user asks for the solar suitability value at a coordinate.\n- Use Get Wind Raster Value when the user asks for the wind suitability value at a coordinate.\n- Use Get Raster Statistics when the user asks for aggregated raster statistics inside a polygon or area.\n- Raster layers are named \"solar\" or \"wind\".\n- Coordinates are expected in EPSG:4326 as longitude, latitude.\n- GeoJSON polygons are expected in EPSG:4326.\n- For raster statistics, report the most relevant values such as mean, min, max, median, and standard deviation when useful.\n- Do not mention internal raster band names such as \"b1\" unless the user explicitly asks.\n- Do not invent suitability categories unless exact category thresholds are known.\n- If the user provides insufficient coordinates or geometry, ask for the missing data.\n- Keep responses concise and explain the result in plain language.\n- When area is returned in square metres, also convert it to hectares when useful: 1 hectare = 10,000 m²."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "be63c9bd-c72f-4423-a7cf-be83070db582",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-6-luna",
+          "mode": "list",
+          "cachedResultName": "gpt-6-luna"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        32,
+        208
+      ],
+      "id": "62fcf5a1-285b-430b-b318-b22aef315e40",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "dPEVg6YP0XHURtuy",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        160,
+        208
+      ],
+      "id": "6a22673d-1e61-468c-a8ef-2b4bdc3aad72",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Calculate the area of a polygon from GeoJSON.\nInput must be a GeoJSON Feature or FeatureCollection in EPSG:4326.\nReturns area in square metres.\nUse this tool whenever the user asks to calculate polygon area.",
+        "method": "POST",
+        "url": "http://geo-api:8000/area",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"geojson\": $fromAI(\n      \"geojson\",\n      \"Valid GeoJSON Feature or FeatureCollection in EPSG:4326 from the user request\",\n      \"json\"\n    )\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        704,
+        144
+      ],
+      "id": "795cd4dc-8628-4288-8c9d-b45c3842e69c",
+      "name": "Calculate Polygon Area"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Get the solar suitability raster value for a geographic coordinate.\n\nInput:\n- longitude in EPSG:4326\n- latitude in EPSG:4326\n\nReturns the raster pixel value from the public solar raster layer.\n\nUse this tool whenever the user asks for the solar potential or suitability at a specific coordinate.",
+        "url": "={{\n  'https://mmda.ipt.kpi.ua/titiler/point/' +\n  $fromAI('longitude', 'Longitude in EPSG:4326', 'number') +\n  ',' +\n  $fromAI('latitude', 'Latitude in EPSG:4326', 'number') +\n  '?url=' +\n  encodeURIComponent(\n    'file:///var/www/mmda.ipt.kpi.ua/solar_map/solar_cog_original_32636.tif'\n  )\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        224
+      ],
+      "id": "b64d2a81-049c-4cd2-a0c9-4c54866bcc79",
+      "name": "Get Solar Raster Value"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Get the wind suitability raster value for a geographic coordinate.\n\nInput:\n- longitude in EPSG:4326\n- latitude in EPSG:4326\n\nReturns the raster pixel value from the public wind raster layer.\n\nUse this tool whenever the user asks for wind potential or suitability at a specific coordinate.",
+        "url": "={{\n  'https://mmda.ipt.kpi.ua/titiler/point/' +\n  $fromAI('longitude', 'Longitude in EPSG:4326', 'number') +\n  ',' +\n  $fromAI('latitude', 'Latitude in EPSG:4326', 'number') +\n  '?url=' +\n  encodeURIComponent(\n    'file:///var/www/mmda.ipt.kpi.ua/solar_map/wind_cog_original_32636.tif'\n  )\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        320,
+        224
+      ],
+      "id": "8ca43324-784f-4e8a-8a82-aadcbd3479a6",
+      "name": "Get Wind Raster Value"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Find geographic coordinates for a city or location by name.\nReturns latitude, longitude, country and administrative information.\nUse this tool whenever the user specifies a place name instead of coordinates.",
+        "url": "={{\n  'https://geocoding-api.open-meteo.com/v1/search?name=' +\n  encodeURIComponent(\n    $fromAI('name', 'City or location name', 'string')\n  ) +\n  '&count=1&language=uk&format=json'\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        560,
+        192
+      ],
+      "id": "31f21a5c-1afd-4b3d-85ab-e6cc193fe97a",
+      "name": "Find Location"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Calculate raster statistics inside a polygon.\n\nInput:\n- layer: \"solar\" or \"wind\"\n- geojson: GeoJSON Polygon or Feature in EPSG:4326\n\nReturns raster statistics such as mean, min, max, median and standard deviation.\n\nUse this tool when the user asks for average or aggregated solar/wind suitability over an area, polygon or region.\n\nDo not use this tool for a single coordinate.",
+        "method": "POST",
+        "url": "http://geo-api:8000/raster/statistics",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"layer\": $fromAI(\n      \"layer\",\n      \"Raster layer. Must be either solar or wind.\",\n      \"string\"\n    ),\n    \"geojson\": $fromAI(\n      \"geojson\",\n      \"GeoJSON Polygon or Feature in EPSG:4326 defining the area to analyse.\",\n      \"json\"\n    )\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        528,
+        352
+      ],
+      "id": "a6093172-0b6e-45de-9108-e9a54473f460",
+      "name": "Get Raster Statistics"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Polygon Area": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Solar Raster Value": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Wind Raster Value": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Location": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Raster Statistics": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "df412cd5-3860-4254-90f5-e7d6bc8c443a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "30ed9d349c6d2977975e632043a8e42636767ca43760a1db925c13e5416240de"
+  },
+  "nodeGroups": [],
+  "id": "sU3CIN5wMGUlBo8g",
+  "tags": []
+}

@@ -2,6 +2,9 @@
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+import httpx
+from typing import Literal
+from fastapi import HTTPException
 
 from geo_agent import gis
 
@@ -24,7 +27,45 @@ class IntersectBody(BaseModel):
     left: dict
     right: dict
 
+class RasterStatisticsBody(BaseModel):
+    geojson: dict
+    layer: Literal["solar", "wind"]
 
+RASTERS = {
+    "solar": "file:///var/www/mmda.ipt.kpi.ua/solar_map/solar_cog_original_32636.tif",
+    "wind": "file:///var/www/mmda.ipt.kpi.ua/solar_map/wind_cog_original_32636.tif",
+}
+
+TITILER_URL = "https://mmda.ipt.kpi.ua/titiler"
+
+
+@app.post("/raster/statistics")
+def raster_statistics(body: RasterStatisticsBody) -> dict:
+    geojson = body.geojson
+
+    if geojson.get("type") in {"Polygon", "MultiPolygon"}:
+        geojson = {
+            "type": "Feature",
+            "properties": {},
+            "geometry": geojson,
+        }
+
+    response = httpx.post(
+        f"{TITILER_URL}/statistics",
+        params={"url": RASTERS[body.layer]},
+        json=geojson,
+        timeout=30,
+    )
+
+    if response.is_error:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=response.text,
+        )
+
+    return response.json()
+
+    
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
