@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GIS Agent Map</title>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --border: #e3e6ea;
+      --text: #1d2228;
+      --muted: #6b7380;
+      --accent: #2563eb;
+      --accent-soft: #e8efff;
+      --user-bubble: #2563eb;
+      --user-text: #ffffff;
+      --bot-bubble: #f1f3f6;
+      --select: #f59e0b;
+      --result: #9333ea;
+      --error: #b91c1c;
+      --error-soft: #fdecec;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ---------- map ---------- */
+    #map { flex: 1; min-width: 0; height: 100%; }
+    .legend {
+      background: var(--panel);
+      padding: 8px 10px;
+      border-radius: 6px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.25);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .legend b { display: block; margin-bottom: 6px; }
+    .legend i { width: 12px; height: 12px; display: inline-block; margin-right: 6px; vertical-align: -1px; }
+    .feature-label {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0 5px;
+      font-weight: 600;
+      font-size: 12px;
+      box-shadow: none;
+    }
+    .feature-label.selected { background: var(--select); border-color: var(--select); color: #fff; }
+    .feature-label.result { color: var(--result); }
+    .feature-label.result.selected { color: #fff; }
+    .map-hint {
+      background: var(--panel);
+      padding: 6px 10px;
+      border-radius: 6px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.25);
+      font-size: 12px;
+      color: var(--muted);
+      max-width: 260px;
+    }
+
+    /* ---------- chat ---------- */
+    #chat {
+      width: 420px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      min-height: 0;
+    }
+    #chat header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    #chat header h1 { font-size: 15px; margin: 0; }
+    #chat header small { color: var(--muted); display: block; font-weight: 400; font-size: 12px; }
+    button {
+      font: inherit;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 5px 10px;
+    }
+    button:hover { background: var(--bg); }
+    button:disabled { opacity: .5; cursor: default; }
+
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .msg { max-width: 92%; padding: 8px 12px; border-radius: 12px; overflow-wrap: anywhere; }
+    .msg.user { align-self: flex-end; background: var(--user-bubble); color: var(--user-text); border-bottom-right-radius: 4px; white-space: pre-wrap; }
+    .msg.bot { align-self: flex-start; background: var(--bot-bubble); border-bottom-left-radius: 4px; }
+    .msg.bot p { margin: 0 0 6px; }
+    .msg.bot p:last-child { margin-bottom: 0; }
+    .msg.bot ul, .msg.bot ol { margin: 4px 0; padding-left: 20px; }
+    .msg.error { align-self: flex-start; background: var(--error-soft); color: var(--error); }
+    .msg .attached { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .msg .attached span { background: rgba(255,255,255,.25); border-radius: 4px; padding: 0 6px; font-size: 12px; font-weight: 600; }
+    .msg .tools { margin-top: 6px; font-size: 12px; color: var(--muted); }
+    .typing { align-self: flex-start; color: var(--muted); font-size: 13px; padding: 4px 2px; }
+    .typing::after { content: "…"; animation: dots 1.2s steps(3) infinite; display: inline-block; width: 1em; overflow: hidden; vertical-align: bottom; }
+    @keyframes dots { from { width: 0; } to { width: 1em; } }
+
+    #composer { border-top: 1px solid var(--border); padding: 10px 12px 12px; }
+    #selection { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--muted); min-height: 22px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: var(--accent-soft); color: var(--accent);
+      border-radius: 999px; padding: 1px 4px 1px 9px; font-weight: 600;
+    }
+    .chip button { border: 0; background: none; padding: 0 4px; color: inherit; line-height: 1; }
+    .chip.result { background: #f3e8ff; color: var(--result); }
+    .link-btn { border: 0; background: none; color: var(--muted); padding: 0 2px; text-decoration: underline; }
+    #form { display: flex; gap: 8px; align-items: flex-end; }
+    #input {
+      flex: 1; resize: none; font: inherit; color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+      max-height: 140px; min-height: 38px; background: var(--panel);
+    }
+    #input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+    #send { background: var(--accent); color: #fff; border-color: var(--accent); padding: 8px 14px; }
+    #send:hover { background: #1d4ed8; }
+    .examples { display: flex; flex-wrap: wrap; gap: 6px; }
+    .examples button { font-size: 12px; padding: 3px 8px; border-radius: 999px; color: var(--muted); }
+
+    /* objects panel (map, top right) */
+    .objects {
+      background: var(--panel);
+      border-radius: 6px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.25);
+      font-size: 12px;
+      width: 240px;
+    }
+    .objects header {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 8px; cursor: pointer; user-select: none; font-weight: 600;
+    }
+    .objects header .count { color: var(--muted); font-weight: 400; }
+    .objects header .bulk { margin-left: auto; display: flex; gap: 2px; }
+    .objects.collapsed .list, .objects.collapsed .bulk { display: none; }
+    .objects .list { max-height: 260px; overflow-y: auto; border-top: 1px solid var(--border); }
+    .objects .empty { padding: 8px; color: var(--muted); }
+    .obj-row { display: flex; align-items: center; gap: 4px; padding: 3px 6px 3px 8px; }
+    .obj-row:hover { background: var(--bg); }
+    .obj-row.hidden .obj-name { color: var(--muted); text-decoration: line-through; }
+    .obj-row input { margin: 0 2px 0 0; }
+    .obj-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    .obj-name b { color: var(--accent); }
+    .obj-row.result .obj-name b { color: var(--result); }
+    .icon-btn { border: 0; background: none; padding: 2px; border-radius: 4px; color: var(--muted); line-height: 0; }
+    .icon-btn:hover { background: var(--border); color: var(--text); }
+    .icon-btn svg { width: 15px; height: 15px; }
+    .chip.hidden-obj { opacity: .6; font-style: italic; }
+
+    @media (max-width: 800px) {
+      body { flex-direction: column; }
+      #map { flex: none; height: 50vh; }
+      #chat { width: 100%; flex: 1; border-left: 0; border-top: 1px solid var(--border); }
+      .map-hint { display: none; }
+      .objects { width: 200px; }
+      .legend { font-size: 11px; padding: 6px 8px; }
+    }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+
+<aside id="chat">
+  <header>
+    <div>
+      <h1>GIS-асистент</h1>
+      <small>Намалюйте або клацніть об'єкт на карті, щоб вибрати його</small>
+    </div>
+    <button id="new-chat" title="Почати нову розмову (об'єкти на карті залишаться)">Нова розмова</button>
+  </header>
+  <div id="messages"></div>
+  <div id="composer">
+    <div id="selection"></div>
+    <form id="form">
+      <textarea id="input" rows="1" placeholder="Запитайте про вибрану область…"></textarea>
+      <button id="send" type="submit">Надіслати</button>
+    </form>
+  </div>
+</aside>
+
+<script>
+// ===================== config =====================
+// All requests go through the page's nginx (same origin): see web/nginx.conf.
+const TITILER = '/titiler/cog';
+const CHAT_URL = '/n8n/webhook/e7a9af16-027e-4b3e-a355-968d2c1d588b/chat';
+
+// Paths as seen by the titiler container (./data/geoportal is mounted at /data/geoportal).
+const RASTERS = {
+  solar: {
+    name: 'Сонячний потенціал (Solar PV)',
+    rgb: 'file:///data/geoportal/solar_cog_rgb_32636.tif',
+    values: 'file:///data/geoportal/solar_cog_original_32636.tif',
+    legend: [
+      ['#1a9641', '> 0.75 (дуже високий)'],
+      ['#a6d96a', '0.7 – 0.75 (високий)'],
+      ['#ffffc0', '0.65 – 0.7 (середній)'],
+      ['#fdae61', '0.6 – 0.65 (низький)'],
+      ['#d7191c', '0 – 0.6 (дуже низький)'],
+      ['#817381', '0 (непридатно)'],
+    ],
+  },
+  wind: {
+    name: 'Вітровий потенціал (Wind)',
+    rgb: 'file:///data/geoportal/wind_cog_rgb_32636.tif',
+    values: 'file:///data/geoportal/wind_cog_original_32636.tif',
+    legend: [
+      ['#1a9641', '> 0.7 (дуже високий)'],
+      ['#a6d96a', '0.6 – 0.7 (високий)'],
+      ['#ffffc0', '0.55 – 0.6 (помірний)'],
+      ['#fdae61', '0.45 – 0.55 (низький)'],
+      ['#d7191c', '0 – 0.45 (дуже низький)'],
+      ['#817381', '0 (непридатно)'],
+    ],
+  },
+};
+
+// Tools whose output is a geometry we should draw.
+const GEOMETRY_TOOLS = new Set(['Buffer_Geometry', 'Calculate_Centroid', 'Intersect_Geometries', 'Find_Raster_Extremum']);
+const COORD_PRECISION = 6;
+
+// ===================== map =====================
+const map = L.map('map', { zoomControl: true }).setView([49, 31], 6);
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap',
+}).addTo(map);
+
+map.createPane('rasterPane').style.zIndex = 350;   // below vector overlays (400)
+
+const rasterLayers = {};
+let activeRaster = 'solar';
+
+function tileUrl(path) {
+  return `${TITILER}/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=${encodeURIComponent(path)}`;
+}
+
+async function makeRasterLayer(key) {
+  const r = RASTERS[key];
+  const opts = { pane: 'rasterPane', opacity: 0.8, maxZoom: 19 };
+  try {
+    const tj = await (await fetch(`${TITILER}/WebMercatorQuad/tilejson.json?url=${encodeURIComponent(r.rgb)}`)).json();
+    const b = tj.bounds;
+    opts.bounds = [[b[1], b[0]], [b[3], b[2]]];
+    opts.maxNativeZoom = tj.maxzoom;
+    if (key === 'solar') map.fitBounds(opts.bounds);
+  } catch (e) {
+    console.warn('tilejson failed for', key, e);
+  }
+  return L.tileLayer(tileUrl(r.rgb), opts);
+}
+
+const legend = L.control({ position: 'bottomright' });
+legend.onAdd = () => L.DomUtil.create('div', 'legend');
+legend.addTo(map);
+function renderLegend() {
+  const el = legend.getContainer();
+  const shown = Object.keys(rasterLayers).filter(k => map.hasLayer(rasterLayers[k]));
+  if (!shown.length) { el.style.display = 'none'; return; }
+  activeRaster = shown.includes(activeRaster) ? activeRaster : shown[shown.length - 1];
+  const r = RASTERS[activeRaster];
+  el.style.display = '';
+  el.innerHTML = `<b>${r.name}</b>` + r.legend.map(([c, t]) => `<div><i style="background:${c}"></i>${t}</div>`).join('');
+}
+
+const layerControl = L.control.layers({ 'OpenStreetMap': osm }, {}, { collapsed: false }).addTo(map);
+
+(async () => {
+  for (const key of ['solar', 'wind']) {
+    rasterLayers[key] = await makeRasterLayer(key);
+    layerControl.addOverlay(rasterLayers[key], RASTERS[key].name);
+  }
+  rasterLayers.solar.addTo(map);
+  renderLegend();
+})();
+
+map.on('overlayadd', e => {
+  const key = Object.keys(rasterLayers).find(k => rasterLayers[k] === e.layer);
+  if (key) activeRaster = key;
+  renderLegend();
+});
+map.on('overlayremove', renderLegend);
+
+// ---- hint ----
+const hint = L.control({ position: 'bottomleft' });
+hint.onAdd = () => {
+  const d = L.DomUtil.create('div', 'map-hint');
+  d.innerHTML = 'Клік по карті — значення растру. Клік по об\'єкту — вибрати/зняти вибір, ' +
+    '<b>Alt+клік</b> — значення растру під об\'єктом. Приховати об\'єкт — у панелі «Об\'єкти».';
+  return d;
+};
+hint.addTo(map);
+
+// ===================== features & selection =====================
+// Every drawn or agent-produced feature gets a letter label and can be selected.
+const features = new Map();      // label -> { layer, kind: 'drawn'|'result', name, hidden }
+const selected = new Set();      // labels
+// Drawn objects and agent results share one group so the draw toolbar's
+// edit / delete / "clear all" work on both.
+const drawnItems = new L.FeatureGroup().addTo(map);
+let labelCounter = 0;
+
+function nextLabel() {
+  let n = labelCounter++, s = '';
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return s;
+}
+
+const STYLE = {
+  drawn:  { color: '#2563eb', weight: 2, fillOpacity: 0.15 },
+  result: { color: '#9333ea', weight: 2, dashArray: '6 4', fillOpacity: 0.12 },
+  selected: { color: '#f59e0b', weight: 3, fillOpacity: 0.25 },
+};
+
+function styleFor(label) {
+  const f = features.get(label);
+  return selected.has(label) ? { ...STYLE[f.kind], ...STYLE.selected } : STYLE[f.kind];
+}
+
+function eachPath(layer, fn) {
+  if (layer.setStyle) fn(layer);
+  if (layer.eachLayer) layer.eachLayer(l => eachPath(l, fn));
+}
+
+function refreshFeature(label) {
+  const f = features.get(label);
+  if (!f) return;
+  const isSel = selected.has(label);
+  eachPath(f.layer, l => l.setStyle(styleFor(label)));
+  const tip = f.layer.getTooltip && f.layer.getTooltip();
+  const el = tip && tip.getElement && tip.getElement();
+  if (el) el.classList.toggle('selected', isSel);
+  // markers: swap icon opacity as a cheap selection cue
+  if (f.layer instanceof L.Marker) f.layer.setOpacity(isSel ? 1 : 0.75);
+}
+
+function registerFeature(layer, kind, name) {
+  const label = nextLabel();
+  layer._gisLabel = label;
+  features.set(label, { layer, kind, name, hidden: false });
+  const isMarker = layer instanceof L.Marker;
+  const isDot = layer instanceof L.CircleMarker;   // point results: label above, not on top of the dot
+  layer.bindTooltip(name ? `${label} · ${name}` : label, {
+    permanent: true,
+    direction: isMarker || isDot ? 'top' : 'center',
+    offset: isMarker ? [-15, -12] : isDot ? [0, -8] : [0, 0],
+    className: `feature-label ${kind}`,
+  });
+  layer.on('click', e => {
+    if (e.originalEvent) e.originalEvent._gisHandled = true;   // keep the map click (raster popup) quiet
+    if (drawing) return;
+    // Alt+click looks "through" the object at the rasters instead of selecting it
+    if (e.originalEvent && e.originalEvent.altKey) {
+      layer.closePopup();
+      return showRasterValues(e.latlng);
+    }
+    toggleSelect(label);
+  });
+  refreshFeature(label);
+  renderObjects();
+  return label;
+}
+
+function removeFeature(label) {
+  features.delete(label);
+  selected.delete(label);
+  renderSelection();
+}
+
+// Remove an object (drawn or agent result) from the map and from the selection.
+function deleteFeature(label) {
+  const f = features.get(label);
+  if (!f) return;
+  drawnItems.removeLayer(f.layer);
+  removeFeature(label);
+}
+
+function deleteSelected() {
+  [...selected].forEach(deleteFeature);
+}
+
+// Hidden objects leave the map (and the draw toolbar's edit/delete scope) but keep their
+// label and selection, so a hidden-but-selected object is still sent to the agent.
+function setHidden(label, hidden) {
+  const f = features.get(label);
+  if (!f || f.hidden === hidden || drawing) return;
+  f.hidden = hidden;
+  if (hidden) {
+    f.layer.closePopup && f.layer.closePopup();
+    drawnItems.removeLayer(f.layer);
+  } else {
+    drawnItems.addLayer(f.layer);
+    refreshFeature(label);       // tooltip element is recreated on add
+  }
+  renderSelection();
+}
+
+function setAllHidden(hidden) {
+  [...features.keys()].forEach(l => setHidden(l, hidden));
+}
+
+function toggleSelect(label, force) {
+  const on = force !== undefined ? force : !selected.has(label);
+  on ? selected.add(label) : selected.delete(label);
+  refreshFeature(label);
+  renderSelection();
+}
+
+function clearSelection() {
+  [...selected].forEach(l => toggleSelect(l, false));
+}
+
+function featureGeoJSON(label) {
+  const f = features.get(label);
+  let gj = f.layer.toGeoJSON(COORD_PRECISION);
+  if (gj.type === 'FeatureCollection') {
+    // results may hold several parts; send them as one FeatureCollection
+    gj.features.forEach(ft => { ft.properties = { ...(ft.properties || {}), label }; });
+    return gj;
+  }
+  gj.properties = { label, ...(f.name ? { name: f.name } : {}) };
+  return gj;
+}
+
+function describe(label) {
+  const f = features.get(label);
+  const gj = f.layer.toGeoJSON();
+  const geom = gj.type === 'FeatureCollection' ? (gj.features[0] || {}).geometry : gj.geometry;
+  const t = geom ? geom.type : '';
+  return { Point: 'точка', LineString: 'лінія', Polygon: 'полігон', MultiPolygon: 'мультиполігон' }[t] || t.toLowerCase();
+}
+
+const selectionEl = document.getElementById('selection');
+function renderSelection() {
+  renderObjects();
+  selectionEl.innerHTML = '';
+  if (!selected.size) {
+    selectionEl.textContent = 'Нічого не вибрано';
+    return;
+  }
+  selectionEl.append('Вибрано: ');
+  for (const label of selected) {
+    const f = features.get(label);
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (f.kind === 'result' ? ' result' : '') + (f.hidden ? ' hidden-obj' : '');
+    chip.title = f.hidden ? 'Приховано (але передається агенту). Клік — показати' : 'Показати на карті';
+    chip.textContent = `${label} · ${describe(label)}` + (f.hidden ? ' (приховано)' : '');
+    chip.style.cursor = 'pointer';
+    chip.onclick = () => { setHidden(label, false); zoomTo(f.layer); };
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.textContent = '×';
+    x.title = 'Зняти вибір';
+    x.onclick = e => { e.stopPropagation(); toggleSelect(label, false); };
+    chip.append(x);
+    selectionEl.append(chip);
+  }
+  const clr = document.createElement('button');
+  clr.type = 'button';
+  clr.className = 'link-btn';
+  clr.textContent = 'зняти все';
+  clr.onclick = clearSelection;
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'link-btn';
+  del.textContent = 'видалити вибрані';
+  del.title = 'Видалити вибрані об\'єкти з карти (клавіша Delete)';
+  del.onclick = deleteSelected;
+  selectionEl.append(clr, del);
+}
+
+function zoomTo(layer) {
+  if (layer.getBounds) {
+    const b = layer.getBounds();
+    if (b.isValid()) return map.fitBounds(b, { maxZoom: 14, padding: [40, 40] });
+  }
+  if (layer.getLatLng) map.setView(layer.getLatLng(), Math.max(map.getZoom(), 11));
+}
+
+// ===================== objects panel =====================
+const ICONS = {
+  eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  eyeOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 8 10 8a17 17 0 0 1-2.2 3.2M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M14.1 14.1a3 3 0 0 1-4.2-4.2"/><path d="M2 2l20 20"/></svg>',
+  zoom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+};
+
+function iconButton(icon, title, onclick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'icon-btn';
+  b.title = title;
+  b.innerHTML = icon;
+  b.onclick = e => { e.stopPropagation(); onclick(); };
+  return b;
+}
+
+let objectsEl = null;
+const objectsControl = L.control({ position: 'topright' });
+objectsControl.onAdd = () => {
+  objectsEl = L.DomUtil.create('div', 'objects');
+  if (window.matchMedia('(max-width: 800px)').matches) objectsEl.classList.add('collapsed');
+  L.DomEvent.disableClickPropagation(objectsEl);
+  L.DomEvent.disableScrollPropagation(objectsEl);
+  return objectsEl;
+};
+objectsControl.addTo(map);
+
+function renderObjects() {
+  if (!objectsEl) return;
+  const n = features.size;
+  const hiddenCount = [...features.values()].filter(f => f.hidden).length;
+  objectsEl.innerHTML = '';
+
+  const head = document.createElement('header');
+  head.title = 'Згорнути / розгорнути';
+  head.onclick = () => objectsEl.classList.toggle('collapsed');
+  head.innerHTML = `Об'єкти <span class="count">${n}${hiddenCount ? `, приховано ${hiddenCount}` : ''}</span>`;
+  if (n) {
+    const bulk = document.createElement('span');
+    bulk.className = 'bulk';
+    bulk.append(
+      iconButton(ICONS.eye, 'Показати всі', () => setAllHidden(false)),
+      iconButton(ICONS.eyeOff, 'Приховати всі', () => setAllHidden(true)),
+    );
+    head.append(bulk);
+  }
+  objectsEl.append(head);
+
+  const list = document.createElement('div');
+  list.className = 'list';
+  if (!n) {
+    list.innerHTML = '<div class="empty">Поки порожньо. Намалюйте щось або спитайте агента.</div>';
+  }
+  for (const [label, f] of features) {
+    const row = document.createElement('div');
+    row.className = `obj-row ${f.kind}` + (f.hidden ? ' hidden' : '');
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = selected.has(label);
+    cb.title = 'Вибрати для запиту агенту';
+    cb.onchange = () => toggleSelect(label, cb.checked);
+
+    const name = document.createElement('span');
+    name.className = 'obj-name';
+    name.innerHTML = `<b>${label}</b> · ${escapeHtml(f.name || describe(label))}`;
+    name.title = 'Показати на карті';
+    name.onclick = () => { setHidden(label, false); zoomTo(f.layer); };
+
+    row.append(
+      cb, name,
+      iconButton(f.hidden ? ICONS.eyeOff : ICONS.eye, f.hidden ? 'Показати' : 'Приховати (не видаляє)',
+        () => setHidden(label, !f.hidden)),
+      iconButton(ICONS.trash, 'Видалити', () => deleteFeature(label)),
+    );
+    list.append(row);
+  }
+  objectsEl.append(list);
+}
+
+// ===================== drawing =====================
+const drawControl = new L.Control.Draw({
+  position: 'topleft',
+  draw: {
+    polygon: { allowIntersection: false, showArea: false, shapeOptions: STYLE.drawn },
+    rectangle: { showArea: false, shapeOptions: STYLE.drawn },   // showArea breaks with Leaflet >=1.8
+    polyline: { shapeOptions: STYLE.drawn },
+    marker: true,
+    circle: false,          // circles are not representable in GeoJSON
+    circlemarker: false,
+  },
+  edit: { featureGroup: drawnItems },
+});
+map.addControl(drawControl);
+
+let drawing = false;
+map.on(L.Draw.Event.DRAWSTART, () => { drawing = true; });
+map.on(L.Draw.Event.DRAWSTOP, () => { setTimeout(() => { drawing = false; }, 0); });
+map.on(L.Draw.Event.EDITSTART, () => { drawing = true; });
+map.on(L.Draw.Event.EDITSTOP, () => { drawing = false; });
+map.on(L.Draw.Event.DELETESTART, () => { drawing = true; });
+map.on(L.Draw.Event.DELETESTOP, () => { drawing = false; });
+
+map.on(L.Draw.Event.CREATED, e => {
+  drawnItems.addLayer(e.layer);
+  const label = registerFeature(e.layer, 'drawn');
+  toggleSelect(label, true);
+});
+map.on(L.Draw.Event.DELETED, e => {
+  e.layers.eachLayer(l => l._gisLabel && removeFeature(l._gisLabel));
+});
+
+// Delete / Backspace removes the selected objects (unless typing somewhere)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+  const t = e.target;
+  if (t.closest && t.closest('input, textarea, [contenteditable]')) return;
+  if (drawing || !selected.size) return;
+  e.preventDefault();
+  deleteSelected();
+});
+
+// ===================== raster value on click =====================
+map.on('click', e => {
+  if (drawing || (e.originalEvent && e.originalEvent._gisHandled)) return;
+  showRasterValues(e.latlng);
+});
+
+async function showRasterValues(latlng) {
+  const { lat, lng } = latlng;
+  const popup = L.popup().setLatLng(latlng).setContent('…').openOn(map);
+  try {
+    const vals = await Promise.all(['solar', 'wind'].map(async k => {
+      const res = await fetch(`${TITILER}/point/${lng},${lat}?url=${encodeURIComponent(RASTERS[k].values)}`);
+      if (!res.ok) return null;
+      const d = await res.json();
+      return d.values && d.values.length ? d.values[0] : null;
+    }));
+    const fmt = v => (v === null || v === undefined || Number.isNaN(v)) ? 'немає даних' : Number(v).toFixed(3);
+    popup.setContent(
+      `<b>Сонце:</b> ${fmt(vals[0])}<br><b>Вітер:</b> ${fmt(vals[1])}` +
+      `<br><small>${lat.toFixed(5)}, ${lng.toFixed(5)}</small>`
+    );
+  } catch (err) {
+    popup.setContent('Не вдалося отримати значення');
+  }
+}
+
+// ===================== agent results → map =====================
+function parseObservation(obs) {
+  let v = obs;
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch { return null; } }
+  // n8n wraps HTTP tool responses in an array
+  if (Array.isArray(v)) v = v.length === 1 ? v[0] : { type: 'FeatureCollection', features: v.flatMap(x => toFeatures(x)) };
+  return v;
+}
+
+function toFeatures(gj) {
+  if (!gj || typeof gj !== 'object') return [];
+  if (gj.type === 'FeatureCollection') return (gj.features || []).filter(f => f && f.geometry);
+  if (gj.type === 'Feature') return gj.geometry ? [gj] : [];
+  if (gj.type && gj.coordinates) return [{ type: 'Feature', properties: {}, geometry: gj }];
+  return [];
+}
+
+// Returns one label per feature: each part becomes its own selectable/deletable object.
+function addResultGeoJSON(gj, name) {
+  const feats = toFeatures(gj);
+  return feats.map((feat, i) => {
+    const layer = L.GeoJSON.geometryToLayer(feat, {
+      pointToLayer: (f, latlng) => L.circleMarker(latlng, { ...STYLE.result, radius: 7, dashArray: null, fillOpacity: 0.6 }),
+    });
+    layer.feature = feat;
+    const v = feat.properties && feat.properties.value;
+    if (typeof v === 'number') layer.bindPopup(`<b>${escapeHtml(name)}</b><br>Значення: ${v.toFixed(4)}`);
+    drawnItems.addLayer(layer);
+    return registerFeature(layer, 'result', feats.length > 1 ? `${name} ${i + 1}/${feats.length}` : name);
+  });
+}
+
+function addResultPoint(lat, lng, name, popupHtml) {
+  const layer = L.marker([lat, lng], { opacity: 0.75 });
+  if (popupHtml) layer.bindPopup(popupHtml);
+  drawnItems.addLayer(layer);
+  return registerFeature(layer, 'result', name);
+}
+
+// Returns the labels of new map objects created from the agent's tool calls.
+function applySteps(steps) {
+  const created = [];
+  const pointValues = new Map();   // "lng,lat" -> {lat,lng,solar,wind}
+
+  for (const step of steps || []) {
+    const tool = step.action && step.action.tool;
+    const input = (step.action && step.action.toolInput) || {};
+    const out = parseObservation(step.observation);
+    if (!tool || !out) continue;
+
+    if (GEOMETRY_TOOLS.has(tool)) {
+      const name = {
+        Buffer_Geometry: input.distance_m ? `буфер ${formatDistance(input.distance_m)}` : 'буфер',
+        Calculate_Centroid: 'центроїд',
+        Intersect_Geometries: 'перетин',
+        Find_Raster_Extremum: `${(out.mode || input.mode) === 'min' ? 'мін' : 'макс'} ` +
+          `${(out.layer || input.layer) === 'wind' ? 'вітер' : 'сонце'}` +
+          (typeof out.value === 'number' ? ` ${out.value.toFixed(3)}` : ''),
+      }[tool];
+      created.push(...addResultGeoJSON(out, name));
+    } else if (tool === 'Find_Location' && out.results && out.results.length) {
+      const r = out.results[0];
+      const label = addResultPoint(r.latitude, r.longitude, r.name,
+        `<b>${escapeHtml(r.name)}</b><br>${escapeHtml([r.admin1, r.country].filter(Boolean).join(', '))}` +
+        `<br><small>${r.latitude.toFixed(5)}, ${r.longitude.toFixed(5)}</small>`);
+      created.push(label);
+    } else if ((tool === 'Get_Solar_Raster_Value' || tool === 'Get_Wind_Raster_Value') && out.coordinates) {
+      const [lng, lat] = out.coordinates;
+      const key = `${lng},${lat}`;
+      const p = pointValues.get(key) || { lat, lng };
+      p[tool.includes('Solar') ? 'solar' : 'wind'] = out.values && out.values[0];
+      pointValues.set(key, p);
+    }
+  }
+
+  // one marker per queried point, unless a found location already sits there
+  for (const p of pointValues.values()) {
+    const near = created.some(l => {
+      const f = features.get(l).layer;
+      return f.getLatLng && f.getLatLng().distanceTo([p.lat, p.lng]) < 50;
+    });
+    const html = ['solar', 'wind'].filter(k => p[k] !== undefined)
+      .map(k => `<b>${k === 'solar' ? 'Сонце' : 'Вітер'}:</b> ${Number(p[k]).toFixed(3)}`).join('<br>');
+    if (near) {
+      const l = created.find(l => features.get(l).layer.getLatLng);
+      features.get(l).layer.bindPopup((features.get(l).layer.getPopup()?.getContent() || '') + '<br>' + html);
+    } else {
+      created.push(addResultPoint(p.lat, p.lng, 'точка', html));
+    }
+  }
+
+  if (created.length) {
+    const group = L.featureGroup(created.map(l => features.get(l).layer));
+    const b = group.getBounds();
+    if (b.isValid()) map.fitBounds(b, { maxZoom: 13, padding: [40, 40] });
+  }
+  return created;
+}
+
+function formatDistance(m) {
+  return m >= 1000 ? `${+(m / 1000).toFixed(2)} км` : `${m} м`;
+}
+
+// ===================== chat =====================
+const messagesEl = document.getElementById('messages');
+const form = document.getElementById('form');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+let sessionId = newSessionId();
+
+function newSessionId() {
+  return (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function scrollDown() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+
+function addUser(text, labels) {
+  const d = document.createElement('div');
+  d.className = 'msg user';
+  d.textContent = text;
+  if (labels.length) {
+    const a = document.createElement('div');
+    a.className = 'attached';
+    labels.forEach(l => { const s = document.createElement('span'); s.textContent = l; a.append(s); });
+    d.append(a);
+  }
+  messagesEl.append(d);
+  scrollDown();
+}
+
+function addBot(markdown, toolsUsed, created) {
+  const d = document.createElement('div');
+  d.className = 'msg bot';
+  d.innerHTML = DOMPurify.sanitize(marked.parse(markdown || ''));
+  if (toolsUsed.length || created.length) {
+    const t = document.createElement('div');
+    t.className = 'tools';
+    const parts = [];
+    if (toolsUsed.length) parts.push('Інструменти: ' + [...new Set(toolsUsed)].join(', '));
+    if (created.length) parts.push('на карті: ' + created.join(', '));
+    t.textContent = parts.join(' · ');
+    d.append(t);
+  }
+  messagesEl.append(d);
+  scrollDown();
+}
+
+function addError(text) {
+  const d = document.createElement('div');
+  d.className = 'msg error';
+  d.textContent = text;
+  messagesEl.append(d);
+  scrollDown();
+}
+
+function showWelcome() {
+  messagesEl.innerHTML = '';
+  addBot(
+    'Вітаю! Я GIS-асистент. Намалюйте полігон, лінію або точку (панель зліва на карті) ' +
+    'чи клацніть по об\'єкту, щоб вибрати його — вибрані об\'єкти автоматично додаються до запиту.',
+    [], []
+  );
+  const ex = document.createElement('div');
+  ex.className = 'examples';
+  [
+    'Яка площа і середній сонячний потенціал цієї області?',
+    'Побудуй буфер 2 км навколо точки',
+    'Знайди перетин A і B',
+    'Який вітровий потенціал у Полтаві?',
+  ].forEach(q => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = q;
+    b.onclick = () => { input.value = q; input.focus(); autosize(); };
+    ex.append(b);
+  });
+  messagesEl.append(ex);
+}
+
+function buildChatInput(text, labels) {
+  if (!labels.length) return text;
+  const lines = labels.map(l => `${l}: ${JSON.stringify(featureGeoJSON(l))}`);
+  return `${text}\n\n[Selected geometries] (GeoJSON, EPSG:4326)\n${lines.join('\n')}`;
+}
+
+async function send(text) {
+  const labels = [...selected];
+  addUser(text, labels);
+  const typing = document.createElement('div');
+  typing.className = 'typing';
+  typing.textContent = 'Агент працює';
+  messagesEl.append(typing);
+  scrollDown();
+  sendBtn.disabled = true;
+
+  try {
+    const res = await fetch(CHAT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'sendMessage', sessionId, chatInput: buildChatInput(text, labels) }),
+    });
+    const raw = await res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${raw.slice(0, 300)}`);
+    let data;
+    try { data = JSON.parse(raw); } catch { data = { output: raw }; }
+    if (Array.isArray(data)) data = data[0] || {};
+    const steps = data.intermediateSteps || [];
+    const created = applySteps(steps);
+    const tools = steps.map(s => s.action && s.action.tool).filter(Boolean).map(t => t.replace(/_/g, ' '));
+    addBot(data.output ?? data.text ?? '(порожня відповідь)', tools, created);
+  } catch (err) {
+    addError('Помилка запиту до агента: ' + err.message);
+  } finally {
+    typing.remove();
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+function autosize() {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+}
+
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text || sendBtn.disabled) return;
+  input.value = '';
+  autosize();
+  send(text);
+});
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+});
+input.addEventListener('input', autosize);
+
+document.getElementById('new-chat').onclick = () => {
+  sessionId = newSessionId();
+  showWelcome();
+};
+
+renderSelection();
+showWelcome();
+</script>
+</body>
+</html>

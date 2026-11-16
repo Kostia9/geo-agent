@@ -1,12 +1,16 @@
 """HTTP surface over the GIS operations, called by n8n's HTTP Request node."""
 
+import os
+
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 import httpx
 from typing import Literal
 from fastapi import HTTPException
 
-from geo_agent import gis
+from rasterio.errors import RasterioIOError
+
+from geo_agent import gis, raster
 
 app = FastAPI(title="geo-agent", version="0.1.0")
 
@@ -31,12 +35,42 @@ class RasterStatisticsBody(BaseModel):
     geojson: dict
     layer: Literal["solar", "wind"]
 
+# Defaults point at the remote KPI TiTiler; docker-compose overrides them
+# to use the local `titiler` service once the rasters are in data/geoportal/.
+RASTER_DIR = os.environ.get("RASTER_DIR", "/var/www/mmda.ipt.kpi.ua/solar_map")
 RASTERS = {
-    "solar": "file:///var/www/mmda.ipt.kpi.ua/solar_map/solar_cog_original_32636.tif",
-    "wind": "file:///var/www/mmda.ipt.kpi.ua/solar_map/wind_cog_original_32636.tif",
+    "solar": f"file://{RASTER_DIR}/solar_cog_original_32636.tif",
+    "wind": f"file://{RASTER_DIR}/wind_cog_original_32636.tif",
 }
 
-TITILER_URL = "https://mmda.ipt.kpi.ua/titiler"
+TITILER_URL = os.environ.get("TITILER_URL", "https://mmda.ipt.kpi.ua/titiler")
+
+# Same rasters read directly by geo-api (./data is mounted at /data) for pixel-level ops.
+LOCAL_RASTER_DIR = os.environ.get("LOCAL_RASTER_DIR", "/data/geoportal")
+LOCAL_RASTERS = {
+    "solar": f"{LOCAL_RASTER_DIR}/solar_cog_original_32636.tif",
+    "wind": f"{LOCAL_RASTER_DIR}/wind_cog_original_32636.tif",
+}
+
+
+class RasterExtremumBody(RasterStatisticsBody):
+    mode: Literal["max", "min"] = "max"
+    max_points: int = Field(default=5, ge=1, le=50)
+    ignore_zero: bool = False
+
+
+@app.post("/raster/extremum")
+def raster_extremum(body: RasterExtremumBody) -> dict:
+    """Points where the layer reaches its max (or min) inside the polygon."""
+    try:
+        result = raster.extremum(
+            LOCAL_RASTERS[body.layer], body.geojson, body.mode, body.max_points, body.ignore_zero
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RasterioIOError as exc:  # missing or unreadable file
+        raise HTTPException(status_code=503, detail=f"Raster for '{body.layer}' is not available") from exc
+    return {"layer": body.layer, **result}
 
 
 @app.post("/raster/statistics")

@@ -4,7 +4,7 @@
     {
       "parameters": {
         "public": true,
-        "initialMessages": "Вітаю! Я GIS-асистент.\nМожу:\n- знаходити координати міст;\n- визначати сонячний та вітровий потенціал;\n- рахувати площу полігонів;\n- аналізувати середні значення растру по території.\nНапишіть назву міста, координати або надішліть GeoJSON.",
+        "initialMessages": "Вітаю! Я GIS-асистент.\nНамалюйте або виберіть об'єкти на карті та спитайте, наприклад:\n- яка площа і середній сонячний потенціал цієї області?\n- побудуй буфер 2 км навколо точки;\n- знайди перетин A і B;\n- який вітровий потенціал у Полтаві?",
         "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.chatTrigger",
@@ -20,7 +20,8 @@
     {
       "parameters": {
         "options": {
-          "systemMessage": "You are a GIS assistant for geospatial analysis.\n\nYour job is to answer user questions about vector and raster geospatial data by using the available GIS tools.\n\nRules:\n- Always use GIS tools for calculations and raster queries. Do not estimate spatial values yourself.\n- Use Calculate Polygon Area when the user asks for polygon area.\n- Use Get Solar Raster Value when the user asks for the solar suitability value at a coordinate.\n- Use Get Wind Raster Value when the user asks for the wind suitability value at a coordinate.\n- Use Get Raster Statistics when the user asks for aggregated raster statistics inside a polygon or area.\n- Raster layers are named \"solar\" or \"wind\".\n- Coordinates are expected in EPSG:4326 as longitude, latitude.\n- GeoJSON polygons are expected in EPSG:4326.\n- For raster statistics, report the most relevant values such as mean, min, max, median, and standard deviation when useful.\n- Do not mention internal raster band names such as \"b1\" unless the user explicitly asks.\n- Do not invent suitability categories unless exact category thresholds are known.\n- If the user provides insufficient coordinates or geometry, ask for the missing data.\n- Keep responses concise and explain the result in plain language.\n- When area is returned in square metres, also convert it to hectares when useful: 1 hectare = 10,000 m²."
+          "systemMessage": "You are a GIS assistant for geospatial analysis.\n\nYour job is to answer user questions about vector and raster geospatial data by using the available GIS tools.\n\nRules:\n- Always use GIS tools for calculations and raster queries. Do not estimate spatial values yourself.\n- Use Calculate Polygon Area when the user asks for polygon area.\n- Use Get Solar Raster Value when the user asks for the solar suitability value at a coordinate.\n- Use Get Wind Raster Value when the user asks for the wind suitability value at a coordinate.\n- Use Buffer Geometry for buffer zones, Calculate Line Length for lengths/perimeters, Calculate Centroid for centre points, Intersect Geometries for overlaps between two geometries.\n- Use Buffer Geometry for buffer zones, Calculate Line Length for lengths/perimeters, Calculate Centroid for centre points, Intersect Geometries for overlaps between two geometries.\n- Use Find Raster Extremum when the user asks WHERE in an area the solar/wind value is highest or lowest. Report the value and how many 100 m pixels share it (tied_pixels); if several, say the map shows a few of them.\n- Use Get Raster Statistics when the user asks for aggregated raster statistics inside a polygon or area.\n- Raster layers are named \"solar\" or \"wind\".\n- Coordinates are expected in EPSG:4326 as longitude, latitude.\n- GeoJSON polygons are expected in EPSG:4326.\n- For raster statistics, report the most relevant values such as mean, min, max, median, and standard deviation when useful.\n- Do not mention internal raster band names such as \"b1\" unless the user explicitly asks.\n- Do not invent suitability categories unless exact category thresholds are known.\n- If the user provides insufficient coordinates or geometry, ask for the missing data.\n- Keep responses concise and explain the result in plain language.\n- When area is returned in square metres, also convert it to hectares when useful: 1 hectare = 10,000 m².\n\nMap UI:\n- The user works in a web map. Their message may end with a block that starts with \"[Selected geometries]\" listing GeoJSON Features labelled A, B, C... drawn or selected on the map.\n- When the user says \"this area\", \"selected polygon\", \"A\", \"B\" etc., use those GeoJSON objects as tool input exactly as given. Do not ask for GeoJSON if a selection is present.\n- If the request needs a geometry and none is selected, ask the user to draw or select one on the map.\n- You may chain tools, e.g. buffer a point and then compute raster statistics for the buffer.\n- Geometries returned by tools and found locations are drawn on the map automatically. Never paste raw GeoJSON or long coordinate lists in your reply.\n- Answer in the user's language.",
+          "returnIntermediateSteps": true
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
@@ -91,7 +92,7 @@
     {
       "parameters": {
         "toolDescription": "Get the solar suitability raster value for a geographic coordinate.\n\nInput:\n- longitude in EPSG:4326\n- latitude in EPSG:4326\n\nReturns the raster pixel value from the public solar raster layer.\n\nUse this tool whenever the user asks for the solar potential or suitability at a specific coordinate.",
-        "url": "={{\n  'https://mmda.ipt.kpi.ua/titiler/point/' +\n  $fromAI('longitude', 'Longitude in EPSG:4326', 'number') +\n  ',' +\n  $fromAI('latitude', 'Latitude in EPSG:4326', 'number') +\n  '?url=' +\n  encodeURIComponent(\n    'file:///var/www/mmda.ipt.kpi.ua/solar_map/solar_cog_original_32636.tif'\n  )\n}}",
+        "url": "={{\n  'http://titiler:8000/cog/point/' +\n  $fromAI('longitude', 'Longitude in EPSG:4326', 'number') +\n  ',' +\n  $fromAI('latitude', 'Latitude in EPSG:4326', 'number') +\n  '?url=' +\n  encodeURIComponent(\n    'file:///data/geoportal/solar_cog_original_32636.tif'\n  )\n}}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequestTool",
@@ -106,7 +107,7 @@
     {
       "parameters": {
         "toolDescription": "Get the wind suitability raster value for a geographic coordinate.\n\nInput:\n- longitude in EPSG:4326\n- latitude in EPSG:4326\n\nReturns the raster pixel value from the public wind raster layer.\n\nUse this tool whenever the user asks for wind potential or suitability at a specific coordinate.",
-        "url": "={{\n  'https://mmda.ipt.kpi.ua/titiler/point/' +\n  $fromAI('longitude', 'Longitude in EPSG:4326', 'number') +\n  ',' +\n  $fromAI('latitude', 'Latitude in EPSG:4326', 'number') +\n  '?url=' +\n  encodeURIComponent(\n    'file:///var/www/mmda.ipt.kpi.ua/solar_map/wind_cog_original_32636.tif'\n  )\n}}",
+        "url": "={{\n  'http://titiler:8000/cog/point/' +\n  $fromAI('longitude', 'Longitude in EPSG:4326', 'number') +\n  ',' +\n  $fromAI('latitude', 'Latitude in EPSG:4326', 'number') +\n  '?url=' +\n  encodeURIComponent(\n    'file:///data/geoportal/wind_cog_original_32636.tif'\n  )\n}}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequestTool",
@@ -151,6 +152,101 @@
       ],
       "id": "a6093172-0b6e-45de-9108-e9a54473f460",
       "name": "Get Raster Statistics"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Build a buffer zone around a point, line or polygon.\nInput: GeoJSON in EPSG:4326 and a distance in metres.\nReturns a GeoJSON FeatureCollection with the buffered polygons (it is drawn on the user's map automatically).\nUse it for requests like 'zone of 5 km around', 'buffer 500 m'.",
+        "method": "POST",
+        "url": "http://geo-api:8000/buffer",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"geojson\": $fromAI(\"geojson\", \"GeoJSON Feature, FeatureCollection or geometry in EPSG:4326. Copy it exactly from the selected geometries or from a previous tool result.\", \"json\"),\n    \"distance_m\": $fromAI(\"distance_m\", \"Buffer distance in metres (convert km to m)\", \"number\")\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        864,
+        364
+      ],
+      "id": "9d4d83be-c18f-4d1e-a26e-bfa3d9f47e4b",
+      "name": "Buffer Geometry"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Calculate the length of lines (or polygon perimeters) from GeoJSON in EPSG:4326.\nReturns length_m: a list with one value in metres per feature.",
+        "method": "POST",
+        "url": "http://geo-api:8000/length",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"geojson\": $fromAI(\"geojson\", \"GeoJSON Feature, FeatureCollection or geometry in EPSG:4326. Copy it exactly from the selected geometries or from a previous tool result.\", \"json\")\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        1024,
+        364
+      ],
+      "id": "178046e8-eaa8-4213-afb6-3cf62bc4ad7d",
+      "name": "Calculate Line Length"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Calculate the centroid (centre point) of each feature in GeoJSON EPSG:4326.\nReturns a GeoJSON FeatureCollection of points (drawn on the map automatically).\nUseful before point raster queries on an area: get the centroid, then query its value.",
+        "method": "POST",
+        "url": "http://geo-api:8000/centroid",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"geojson\": $fromAI(\"geojson\", \"GeoJSON Feature, FeatureCollection or geometry in EPSG:4326. Copy it exactly from the selected geometries or from a previous tool result.\", \"json\")\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        1184,
+        364
+      ],
+      "id": "3a76118f-6c97-4082-ab22-71b26e6182a9",
+      "name": "Calculate Centroid"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Compute the geometric intersection (overlap) of two GeoJSON layers in EPSG:4326.\nInput: left and right GeoJSON (e.g. selected geometries A and B).\nReturns a GeoJSON FeatureCollection of the overlapping parts (drawn on the map); an empty FeatureCollection means they do not overlap.",
+        "method": "POST",
+        "url": "http://geo-api:8000/intersect",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"left\": $fromAI(\"left\", \"First GeoJSON (EPSG:4326)\", \"json\"),\n    \"right\": $fromAI(\"right\", \"Second GeoJSON (EPSG:4326)\", \"json\")\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        1344,
+        364
+      ],
+      "id": "2a22fd94-a687-433f-b72a-178efe2a563d",
+      "name": "Intersect Geometries"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Find WHERE inside a polygon the solar or wind raster reaches its maximum or minimum.\nInput: layer (solar|wind), mode (max|min), ignore_zero, and a GeoJSON Polygon/Feature in EPSG:4326.\nReturns the extreme value, the number of pixels sharing it (tied_pixels), and up to 5 pixel-centre points (100 m pixels) as a GeoJSON FeatureCollection (drawn on the map automatically).\nUse it for 'where is the best/worst place in this area', 'point with the highest solar potential'.\nValue 0 means unsuitable land and usually dominates minima: for 'least suitable but still usable' set ignore_zero=true; for plain minimum keep it false.",
+        "method": "POST",
+        "url": "http://geo-api:8000/raster/extremum",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"layer\": $fromAI(\"layer\", \"Raster layer: solar or wind\", \"string\"),\n    \"mode\": $fromAI(\"mode\", \"max for the highest value, min for the lowest\", \"string\"),\n    \"ignore_zero\": $fromAI(\"ignore_zero\", \"true to skip 0 (unsuitable) pixels\", \"boolean\"),\n    \"geojson\": $fromAI(\"geojson\", \"GeoJSON Feature, FeatureCollection or geometry in EPSG:4326. Copy it exactly from the selected geometries or from a previous tool result.\", \"json\")\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        1504,
+        364
+      ],
+      "id": "09c47a65-40b7-4747-b7a7-6a769e68e22b",
+      "name": "Find Raster Extremum"
     }
   ],
   "pinData": {},
@@ -233,6 +329,61 @@
       ]
     },
     "Get Raster Statistics": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buffer Geometry": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Line Length": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Centroid": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intersect Geometries": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Raster Extremum": {
       "ai_tool": [
         [
           {
